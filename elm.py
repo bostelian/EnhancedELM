@@ -20,19 +20,26 @@ class ELMAbstract(ABC):
             self.stopwatch = stopwatch
             self.output_weights = None
             self.is_fitted = False
+            self.running_times = {}
         
         def fit(self, dataset = None, labels = None):
+            self.stopwatch.start()
             hidden_activations = self.hidden_layer.fit_transform(dataset)
             targets = self._compute_targets(labels)
             self.output_weights = self._fit_classifier(targets, hidden_activations)
             self.is_fitted = True
+            self.running_times['fit'] = self.stopwatch.stop()
+            self.stopwatch.clear()
             return self
       
         def predict(self, dataset = None):
             if self.is_fitted == False:
                 raise Exception("Classifier is not fitted")
+            self.stopwatch.start()
             hidden_activations = self.hidden_layer.transform(dataset)
             predictions = self._compute_labels(self._predict_classifier(hidden_activations))
+            self.running_times['predict'] = self.stopwatch.stop()
+            self.stopwatch.clear()
             return predictions
     
         def _compute_targets(self, labels = None):
@@ -41,6 +48,9 @@ class ELMAbstract(ABC):
         def _compute_labels(self, targets = None):
             return self.binarizer.inverse_transform(targets)
         
+        def get_running_times(self):
+            return self.running_times
+
         @abstractmethod
         def _fit_classifier(self, targets = None, hidden_activations = None):
             pass
