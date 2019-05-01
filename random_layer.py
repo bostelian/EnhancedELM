@@ -31,10 +31,10 @@ class RandomLayerAbstract():
 
     def _generate_weights(self, dataset = None, random_generator = None):
         features = dataset.shape[1]
-        self.weights = random_generator.normal(size = (features, self.hidden_neurons))
+        self.weights = random_generator.normal(size = (features, self.hidden_neurons)).astype('float32')
     
     def _generate_biases(self,  dataset = None, random_generator = None):
-        self.biases = random_generator.normal(size = self.hidden_neurons)
+        self.biases = random_generator.normal(size = self.hidden_neurons).astype('float32')
 
     @abstractmethod
     def _compute_output_weights(self, dataset = None):
