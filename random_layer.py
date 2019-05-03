@@ -3,6 +3,7 @@ import tensorflow as tf
 import numpy as np
 from sklearn.utils import check_array, check_random_state
 from sklearn.utils.extmath import safe_sparse_dot
+from numba import jit
 
 class RandomLayerAbstract():
     def __init__(self,
@@ -81,6 +82,6 @@ class RandomLayerCPU(RandomLayerAbstract):
                         activation_function = activation_function,
                         random_state = 0)
 
-
+    @jit
     def _compute_output_weights(self, dataset = None):
         return self.activation_function(safe_sparse_dot(dataset, self.weights) + self.biases) 
