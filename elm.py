@@ -6,7 +6,6 @@ import scipy.linalg
 
 from random_layer import RandomLayerCPU, RandomLayerGPU
 from utils.stopwatch import Stopwatch
-from numba import jit
 
 
 class ELMAbstract(ABC):

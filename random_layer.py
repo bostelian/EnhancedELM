@@ -3,7 +3,6 @@ import tensorflow as tf
 import numpy as np
 from sklearn.utils import check_array, check_random_state
 from sklearn.utils.extmath import safe_sparse_dot
-from numba import jit
 
 class RandomLayerAbstract():
     def __init__(self,
@@ -49,7 +48,7 @@ class RandomLayerGPU(RandomLayerAbstract):
                  random_state = 0):
         super().__init__(hidden_neurons = hidden_neurons,
                         activation_function = activation_function,
-                        random_state = 0)
+                        random_state = random_state)
 
 
     def _compute_output_weights(self, dataset = None):
@@ -80,8 +79,50 @@ class RandomLayerCPU(RandomLayerAbstract):
                  random_state = 0):
         super().__init__(hidden_neurons = hidden_neurons,
                         activation_function = activation_function,
-                        random_state = 0)
-
-    @jit
+                        random_state = random_state)
+    
     def _compute_output_weights(self, dataset = None):
-        return self.activation_function(safe_sparse_dot(dataset, self.weights) + self.biases) 
+        return self.activation_function(safe_sparse_dot(dataset, self.weights))
+
+class RandomLayerLRF(RandomLayerAbstract):
+    def __init__(self,
+                 hidden_neurons = 1000,
+                 activation_function = lambda arg : np.tanh(arg),
+                 random_state = 0,
+                 LRF_threshold = 10,
+                 border = 0,
+                 image_shape = (0, 0)):
+        super().__init__(hidden_neurons = hidden_neurons,
+                        activation_function = activation_function,
+                        random_state = random_state)
+        self.LRF_threshold = LRF_threshold
+        self.border = border
+        self.image_shape = image_shape
+    
+    def _generate_weights(self, dataset = None, random_generator = None):
+        features = dataset.shape[1]
+        LRF_mask = self._generate_LRF_mask(features)
+        self.weights = np.multiply(LRF_mask, random_generator.normal(size = (features, self.hidden_neurons)).astype('float32'))
+
+    def _generate_LRF_mask(self, features):
+        LRF_mask = np.zeros((features, self.hidden_neurons), dtype="float32")
+        indexMaxVal = self.image_shape[0] if self.image_shape[0] > self.image_shape[1] else self.image_shape[1]
+        for neuron in range(0, self.hidden_neurons - 1):
+            image_mask = np.zeros(self.image_shape)
+            index1 = np.zeros((2,1))
+            index2 = np.zeros((2,1))
+            while (index1[1]-index1[0]) * (index2[1] - index2[0]) < self.LRF_threshold:
+                index1 =  self.border + np.sort(np.random.uniform(
+                                                low = 0,
+                                                high = indexMaxVal - 2 * self.border,
+                                                size=(2,1)).astype("int"), axis=None)
+                index2 =  self.border + np.sort(np.random.uniform(
+                                                low = 0,
+                                                high = indexMaxVal - 2 * self.border,
+                                                size=(2,1)).astype("int"), axis=None)
+            image_mask[index1[0]:index1[1]:1, index2[0]:index2[1]:1] = 1
+            LRF_mask[:,neuron] = image_mask.flatten()
+        return LRF_mask
+
+    def _compute_output_weights(self, dataset = None):
+        return self.activation_function(safe_sparse_dot(dataset,self.weights))
