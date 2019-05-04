@@ -3,20 +3,24 @@ import tensorflow as tf
 import numpy as np
 from sklearn.utils import check_array, check_random_state
 from sklearn.utils.extmath import safe_sparse_dot
+from utils.verbosity_manager import VerbosityManager
 
 class RandomLayerAbstract():
     def __init__(self,
                  hidden_neurons = None,
                  activation_function = None,
-                 random_state = None):
+                 random_state = None,
+                 verbose = False):
         self.hidden_neurons = hidden_neurons
         self.activation_function = activation_function
         self.random_state = random_state
         self.weights = None
         self.biases = None
         self.is_fitted = False
+        self.verbosity_mgr = VerbosityManager(verbose=verbose)
 
     def fit_transform(self, dataset):
+        self.verbosity_mgr.begin("fit_transform")
         check_array(dataset)
         random_generator = check_random_state(self.random_state)
         self._generate_biases(dataset, random_generator)

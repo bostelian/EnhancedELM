@@ -7,6 +7,7 @@ import scipy.linalg
 from random_layer import RandomLayerCPU, RandomLayerGPU
 from utils.stopwatch import Stopwatch
 
+from utils.verbosity_manager import VerbosityManager
 
 class ELMAbstract(ABC):
         def __init__(self,
@@ -14,7 +15,8 @@ class ELMAbstract(ABC):
                 classifier = None,
                 C = None,
                 binarizer = None,
-                stopwatch = None
+                stopwatch = None,
+                verbosity_mgr = False
                 ):
             self.hidden_layer = hidden_layer
             self.C = C
@@ -24,9 +26,11 @@ class ELMAbstract(ABC):
             self.is_fitted = False
             self.running_times = {}
             self.classifier = classifier
+            self.verbosity_mgr = verbosity_mgr
         
         def fit(self, dataset = None, labels = None):
             self.stopwatch.start()
+            self.verbosity_mgr.begin("fit")
             hidden_activations = self.hidden_layer.fit_transform(dataset)
             if self.classifier == None:
                 labels_bin = self._binarize(labels)
@@ -36,9 +40,11 @@ class ELMAbstract(ABC):
             self.is_fitted = True
             self.running_times['fit'] = self.stopwatch.stop()
             self.stopwatch.clear()
+            self.verbosity_mgr.end()
             return self
       
         def predict(self, dataset = None):
+            self.verbosity_mgr.begin("predict")
             if self.is_fitted == False:
                 raise Exception("Classifier is not fitted")
             self.stopwatch.start()
@@ -49,6 +55,7 @@ class ELMAbstract(ABC):
                 predictions = self.classifier.predict(hidden_activations)
             self.running_times['predict'] = self.stopwatch.stop()
             self.stopwatch.clear()
+            self.verbosity_mgr.end()
             return predictions
     
         def _binarize(self, labels = None):
@@ -69,43 +76,55 @@ class ELMAbstract(ABC):
             pass
 
 class ELMCPU(ELMAbstract):
+    __NAME__ = "ELMCPU"
     def __init__(self,
                 hidden_layer = RandomLayerCPU(),
                 classifier = None,
                 C = 1.0,
                 binarizer = LabelBinarizer(-1, 1),
-                stopwatch = Stopwatch()):
+                stopwatch = Stopwatch(),
+                verbose = False):
         super().__init__(hidden_layer = hidden_layer,
                             classifier=classifier,
                             C = C,
                             binarizer = binarizer,
-                            stopwatch = stopwatch)
+                            stopwatch = stopwatch,
+                            verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
 
 
     def _fit_classifier(self, targets = None, hidden_activations = None):
+        self.verbosity_mgr.begin("fit_classifier")
         hidden_neurons = self.hidden_layer.hidden_neurons
         self.output_weights =  scipy.linalg.solve(
                                 np.eye(hidden_neurons) / self.C + np.dot(hidden_activations.T,hidden_activations),
                                 np.dot(hidden_activations.T,targets))
+        self.verbosity_mgr.end()                  
 
 
     def _predict_classifier(self, hidden_activations = None):
-        return np.dot(hidden_activations, self.output_weights)
+        self.verbosity_mgr.begin("predict_classifier")
+        result = np.dot(hidden_activations, self.output_weights)
+        self.verbosity_mgr.end()
+        return result
 
 class ELMGPU(ELMAbstract):
+    __NAME__ = "ELMGPU"
     def __init__(self,
                 hidden_layer = RandomLayerGPU(),
                 classifier = None,
                 C = 1.0,
                 binarizer = LabelBinarizer(),
-                stopwatch = Stopwatch()):
+                stopwatch = Stopwatch(),
+                verbose = False):
         super().__init__(hidden_layer = hidden_layer,
                             classifier=classifier,
                             C = C,
                             binarizer = binarizer,
-                            stopwatch = stopwatch)
+                            stopwatch = stopwatch,
+                            verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
     
     def _fit_classifier(self, targets = None, hidden_activations = None):
+        self.verbosity_mgr.begin("fit_classifier")
         hidden_neurons = self.hidden_layer.hidden_neurons
         identity = np.eye(hidden_neurons)
 
@@ -140,10 +159,11 @@ class ELMGPU(ELMAbstract):
         with tf.Session() as sess:                            
             output_weights = sess.run(compute_inverse, feed_dict={identity_plc: identity, dot1_plc : dot1, dot2_plc : dot2})
             sess.close()
-
+        self.verbosity_mgr.end()
         return output_weights
 
     def _predict_classifier(self, hidden_activations = None):
+        self.verbosity_mgr.begin("predict_classifier")
         hidden_activations_plc = tf.placeholder(tf.float32, shape=hidden_activations.shape)
         output_weights_plc = tf.placeholder(tf.float32, shape=self.output_weights.shape)
 
@@ -154,7 +174,7 @@ class ELMGPU(ELMAbstract):
             predictions =  sess.run(compute_dot, feed_dict={hidden_activations_plc: hidden_activations,
                                                  output_weights_plc : self.output_weights})
             sess.close()    
-        
+        self.verbosity_mgr.end()
         return predictions
 
 
