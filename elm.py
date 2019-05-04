@@ -157,10 +157,9 @@ class ELMGPU(ELMAbstract):
             compute_inverse = tf.matrix_solve(identity_plc  + dot1_plc,
                                        dot2_plc)
         with tf.Session() as sess:                            
-            output_weights = sess.run(compute_inverse, feed_dict={identity_plc: identity, dot1_plc : dot1, dot2_plc : dot2})
+            self.output_weights = sess.run(compute_inverse, feed_dict={identity_plc: identity, dot1_plc : dot1, dot2_plc : dot2})
             sess.close()
         self.verbosity_mgr.end()
-        return output_weights
 
     def _predict_classifier(self, hidden_activations = None):
         self.verbosity_mgr.begin("predict_classifier")
