@@ -16,7 +16,7 @@ class ELMAbstract(ABC):
                 C = None,
                 binarizer = None,
                 stopwatch = None,
-                verbosity_mgr = False
+                verbosity_mgr = None
                 ):
             self.hidden_layer = hidden_layer
             self.C = C

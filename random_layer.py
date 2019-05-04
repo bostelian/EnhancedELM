@@ -10,14 +10,14 @@ class RandomLayerAbstract():
                  hidden_neurons = None,
                  activation_function = None,
                  random_state = None,
-                 verbose = False):
+                 verbosity_mgr = False):
         self.hidden_neurons = hidden_neurons
         self.activation_function = activation_function
         self.random_state = random_state
         self.weights = None
         self.biases = None
         self.is_fitted = False
-        self.verbosity_mgr = VerbosityManager(verbose=verbose)
+        self.verbosity_mgr = verbosity_mgr
 
     def fit_transform(self, dataset):
         self.verbosity_mgr.begin("fit_transform")
@@ -26,12 +26,16 @@ class RandomLayerAbstract():
         self._generate_biases(dataset, random_generator)
         self._generate_weights(dataset, random_generator)
         self.is_fitted = True
+        self.verbosity_mgr.end()
         return self.transform(dataset)
 
     def transform(self, dataset):
+        self.verbosity_mgr.begin("transform")
         if self.is_fitted == False:
             raise ValueError('The random layer is not fitted')
-        return self._compute_output_weights(dataset)
+        result = self._compute_output_weights(dataset)
+        self.verbosity_mgr.end()
+        return result
 
     def _generate_weights(self, dataset = None, random_generator = None):
         features = dataset.shape[1]
@@ -46,16 +50,20 @@ class RandomLayerAbstract():
         
 
 class RandomLayerGPU(RandomLayerAbstract):
+    __NAME__ = "RandomLayerGPU"
     def __init__(self,
                  hidden_neurons = 1000,
                  activation_function = lambda arg : tf.tanh(arg),
-                 random_state = 0):
+                 random_state = 0,
+                 verbose = False):
         super().__init__(hidden_neurons = hidden_neurons,
                         activation_function = activation_function,
-                        random_state = random_state)
+                        random_state = random_state,
+                        verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
 
 
     def _compute_output_weights(self, dataset = None):
+        self.verbosity_mgr.begin("compute_output_weights")
         dataset_plc = tf.placeholder(tf.float32, shape=dataset.shape)
         weights_plc = tf.placeholder(tf.float32, shape=self.weights.shape)
         with tf.device('/gpu:0'):
@@ -73,32 +81,41 @@ class RandomLayerGPU(RandomLayerAbstract):
         with tf.Session() as sess:
             output_weights =  sess.run(compute_output_weights, feed_dict={dot_product_plc: dot_product, biases_plc : self.biases})
             sess.close()
-
+        self.verbosity_mgr.end()
         return output_weights
 
 class RandomLayerCPU(RandomLayerAbstract):
+    __NAME__ = "RandomLayerCPU"
     def __init__(self,
                  hidden_neurons = 1000,
                  activation_function = lambda arg : np.tanh(arg),
-                 random_state = 0):
+                 random_state = 0,
+                 verbose = False):
         super().__init__(hidden_neurons = hidden_neurons,
                         activation_function = activation_function,
-                        random_state = random_state)
+                        random_state = random_state,
+                        verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
     
     def _compute_output_weights(self, dataset = None):
-        return self.activation_function(safe_sparse_dot(dataset, self.weights))
+        self.verbosity_mgr.begin("compute_output_weights")
+        result = self.activation_function(safe_sparse_dot(dataset, self.weights))
+        self.verbosity_mgr.end()
+        return result
 
 class RandomLayerLRF(RandomLayerAbstract):
+    __NAME__ = "RandomLayerLRF"
     def __init__(self,
                  hidden_neurons = 1000,
                  activation_function = lambda arg : np.tanh(arg),
                  random_state = 0,
                  LRF_threshold = 10,
                  border = 0,
-                 image_shape = (0, 0)):
+                 image_shape = (0, 0),
+                 verbose = False):
         super().__init__(hidden_neurons = hidden_neurons,
                         activation_function = activation_function,
-                        random_state = random_state)
+                        random_state = random_state,
+                        verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
         self.LRF_threshold = LRF_threshold
         self.border = border
         self.image_shape = image_shape
@@ -109,6 +126,7 @@ class RandomLayerLRF(RandomLayerAbstract):
         self.weights = np.multiply(LRF_mask, random_generator.normal(size = (features, self.hidden_neurons)).astype('float32'))
 
     def _generate_LRF_mask(self, features):
+        self.verbosity_mgr.begin("generate_LRF_mask")
         LRF_mask = np.zeros((features, self.hidden_neurons), dtype="float32")
         indexMaxVal = self.image_shape[0] if self.image_shape[0] > self.image_shape[1] else self.image_shape[1]
         for neuron in range(0, self.hidden_neurons - 1):
@@ -126,6 +144,7 @@ class RandomLayerLRF(RandomLayerAbstract):
                                                 size=(2,1)).astype("int"), axis=None)
             image_mask[index1[0]:index1[1]:1, index2[0]:index2[1]:1] = 1
             LRF_mask[:,neuron] = image_mask.flatten()
+        self.verbosity_mgr.end()
         return LRF_mask
 
     def _compute_output_weights(self, dataset = None):
