@@ -21,7 +21,7 @@ class RandomLayerAbstract():
 
     def fit_transform(self, dataset):
         self.verbosity_mgr.begin("fit_transform")
-        check_array(dataset)
+        #check_array(dataset)
         random_generator = check_random_state(self.random_state)
         self._generate_biases(dataset, random_generator)
         self._generate_weights(dataset, random_generator)
@@ -98,7 +98,7 @@ class RandomLayerCPU(RandomLayerAbstract):
     
     def _compute_output_weights(self, dataset = None):
         self.verbosity_mgr.begin("compute_output_weights")
-        result = self.activation_function(safe_sparse_dot(dataset, self.weights))
+        result = self.activation_function(safe_sparse_dot(dataset, self.weights) + self.biases)
         self.verbosity_mgr.end()
         return result
 
