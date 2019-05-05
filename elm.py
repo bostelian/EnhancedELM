@@ -2,11 +2,11 @@ from abc import ABC, abstractmethod
 import numpy as np
 import tensorflow as tf
 from sklearn.preprocessing import LabelBinarizer
+from sklearn.metrics import accuracy_score
 import scipy.linalg
 
 from random_layer import RandomLayerCPU, RandomLayerGPU
 from utils.stopwatch import Stopwatch
-
 from utils.verbosity_manager import VerbosityManager
 
 class ELMAbstract(ABC):
@@ -59,6 +59,9 @@ class ELMAbstract(ABC):
             self.stopwatch.clear()
             self.verbosity_mgr.end()
             return predictions
+
+        def score(self, dataset = None, labels = None):
+            return accuracy_score(labels, self.predict(dataset))
 
         def add_layer(self, random_layer = None):
             self.hidden_layers.append(random_layer)
