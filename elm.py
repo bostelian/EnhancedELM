@@ -11,14 +11,13 @@ from utils.verbosity_manager import VerbosityManager
 
 class ELMAbstract(ABC):
         def __init__(self,
-                #hidden_layer = None,
+                hidden_layer = None,
                 classifier = None,
                 C = None,
                 binarizer = None,
                 stopwatch = None,
                 verbosity_mgr = None
                 ):
-            #self.hidden_layer = hidden_layer
             self.C = C
             self.binarizer = binarizer
             self.stopwatch = stopwatch
@@ -27,7 +26,7 @@ class ELMAbstract(ABC):
             self.running_times = {}
             self.classifier = classifier
             self.verbosity_mgr = verbosity_mgr
-            self.hidden_layers = []
+            self.hidden_layers = [hidden_layer]
 
         def fit(self, dataset = None, labels = None):
             self.stopwatch.start()
@@ -106,13 +105,13 @@ class ELMAbstract(ABC):
 class ELMCPU(ELMAbstract):
     __NAME__ = "ELMCPU"
     def __init__(self,
-                #hidden_layer = RandomLayerCPU(),
+                hidden_layer = RandomLayerCPU(),
                 classifier = None,
                 C = 1.0,
                 binarizer = LabelBinarizer(-1, 1),
                 stopwatch = Stopwatch(),
                 verbose = False):
-        super().__init__(#hidden_layer = hidden_layer,
+        super().__init__(hidden_layer = hidden_layer,
                             classifier=classifier,
                             C = C,
                             binarizer = binarizer,
@@ -138,13 +137,13 @@ class ELMCPU(ELMAbstract):
 class ELMGPU(ELMAbstract):
     __NAME__ = "ELMGPU"
     def __init__(self,
-                #hidden_layer = RandomLayerGPU(),
+                hidden_layer = RandomLayerGPU(),
                 classifier = None,
                 C = 1.0,
                 binarizer = LabelBinarizer(),
                 stopwatch = Stopwatch(),
                 verbose = False):
-        super().__init__(#hidden_layer = hidden_layer,
+        super().__init__(hidden_layer = hidden_layer,
                             classifier=classifier,
                             C = C,
                             binarizer = binarizer,

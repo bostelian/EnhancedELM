@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import tensorflow as tf
 import numpy as np
-from sklearn.utils import check_array, check_random_state
+from sklearn.utils import check_random_state
 from sklearn.utils.extmath import safe_sparse_dot
 from utils.verbosity_manager import VerbosityManager
 
@@ -21,7 +21,6 @@ class RandomLayerAbstract():
 
     def fit_transform(self, dataset):
         self.verbosity_mgr.begin("fit_transform")
-        #check_array(dataset)
         random_generator = check_random_state(self.random_state)
         self._generate_biases(dataset, random_generator)
         self._generate_weights(dataset, random_generator)
@@ -110,7 +109,7 @@ class RandomLayerLRF(RandomLayerAbstract):
                  random_state = 0,
                  LRF_threshold = 10,
                  border = 0,
-                 image_shape = (0, 0),
+                 data_shape = (0, 0),
                  verbose = False):
         super().__init__(hidden_neurons = hidden_neurons,
                         activation_function = activation_function,
@@ -118,7 +117,7 @@ class RandomLayerLRF(RandomLayerAbstract):
                         verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
         self.LRF_threshold = LRF_threshold
         self.border = border
-        self.image_shape = image_shape
+        self.data_shape = data_shape
     
     def _generate_weights(self, dataset = None, random_generator = None):
         features = dataset.shape[1]
@@ -128,9 +127,9 @@ class RandomLayerLRF(RandomLayerAbstract):
     def _generate_LRF_mask(self, features):
         self.verbosity_mgr.begin("generate_LRF_mask")
         LRF_mask = np.zeros((features, self.hidden_neurons), dtype="float32")
-        indexMaxVal = self.image_shape[0] if self.image_shape[0] > self.image_shape[1] else self.image_shape[1]
+        indexMaxVal = self.data_shape[0] if self.data_shape[0] > self.data_shape[1] else self.data_shape[1]
         for neuron in range(0, self.hidden_neurons - 1):
-            image_mask = np.zeros(self.image_shape)
+            image_mask = np.zeros(self.data_shape)
             index1 = np.zeros((2,1))
             index2 = np.zeros((2,1))
             while (index1[1]-index1[0]) * (index2[1] - index2[0]) < self.LRF_threshold:
