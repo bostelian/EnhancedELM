@@ -76,6 +76,19 @@ class ELMAbstract(ABC):
 
             return hidden_activations
 
+        def _fit_classifier(self, targets = None, hidden_activations = None):
+            self.verbosity_mgr.begin("fit_classifier")
+
+            hidden_neurons = self._get_hidden_neurons()
+            training_samples = targets.shape[0]
+
+            if hidden_neurons < training_samples:
+                self._less_neurons_than_samples(targets, hidden_activations)
+            else:
+                self._more_neurons_than_samples(targets, hidden_activations)
+
+            self.verbosity_mgr.end()     
+
         def _transform_layers(self, dataset = None):
             hidden_activations = None
             for current_layer in self.hidden_layers:
@@ -98,7 +111,11 @@ class ELMAbstract(ABC):
             return self.running_times
 
         @abstractmethod
-        def _fit_classifier(self, targets = None, hidden_activations = None):
+        def _less_neurons_than_samples(self, targets = None, hidden_activations = None):
+            pass
+
+        @abstractmethod
+        def _more_neurons_than_samples(self, targets = None, hidden_activations = None):
             pass
 
         @abstractmethod
@@ -120,16 +137,18 @@ class ELMCPU(ELMAbstract):
                             binarizer = binarizer,
                             stopwatch = stopwatch,
                             verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
+          
+    def _less_neurons_than_samples(self, targets = None, hidden_activations = None):
+        HTH = np.dot(hidden_activations.T,hidden_activations)
+        HTt = np.dot(hidden_activations.T,targets)
+        identity = np.eye(HTH.shape[0], HTH.shape[1])
+        self.output_weights = scipy.linalg.solve( identity / self.C + HTH, HTt)
 
-
-    def _fit_classifier(self, targets = None, hidden_activations = None):
-        self.verbosity_mgr.begin("fit_classifier")
-        hidden_neurons = self._get_hidden_neurons()
-        self.output_weights =  scipy.linalg.solve(
-                                np.eye(hidden_neurons) / self.C + np.dot(hidden_activations.T,hidden_activations),
-                                np.dot(hidden_activations.T,targets))
-        self.verbosity_mgr.end()                  
-
+    def _more_neurons_than_samples(self, targets = None, hidden_activations = None):
+        HHT = np.dot(hidden_activations, hidden_activations.T)
+        identity = np.eye(HHT.shape[0], HHT.shape[1])
+        Hinv = scipy.linalg.solve(identity / self.C + HHT, targets)
+        self.output_weights = np.dot(hidden_activations.T, Hinv)
 
     def _predict_classifier(self, hidden_activations = None):
         self.verbosity_mgr.begin("predict_classifier")
@@ -153,43 +172,74 @@ class ELMGPU(ELMAbstract):
                             stopwatch = stopwatch,
                             verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
     
-    def _fit_classifier(self, targets = None, hidden_activations = None):
-        self.verbosity_mgr.begin("fit_classifier")
-        hidden_neurons = self._get_hidden_neurons()
-        identity = np.eye(hidden_neurons)
+    def _less_neurons_than_samples(self, targets = None, hidden_activations = None):
 
         hidden_activations_plc = tf.placeholder(tf.float32, shape=hidden_activations.shape)
         hidden_activations_t_plc = tf.placeholder(tf.float32, shape=hidden_activations.T.shape)
-        targets_plc = tf.placeholder(tf.float32, shape=targets.shape)
-        identity_plc = tf.placeholder(tf.float32, shape=identity.shape)
-
+        
         with tf.device('/gpu:0'):
-            compute_dot1 = tf.tensordot(hidden_activations_t_plc, hidden_activations_plc, axes=1)
+            compute_HTH = tf.tensordot(hidden_activations_t_plc, hidden_activations_plc, axes=1)
 
         with tf.Session() as sess:
-            dot1 =  sess.run(compute_dot1, feed_dict={hidden_activations_t_plc: hidden_activations.T,
+            HTH =  sess.run(compute_HTH, feed_dict={hidden_activations_t_plc: hidden_activations.T,
                                                  hidden_activations_plc : hidden_activations})
             sess.close()
         
-        dot1_plc = tf.placeholder(tf.float32, shape=dot1.shape)
+        identity = np.eye(HTH.shape[0], HTH.shape[1]) / self.C
+        identity_plc = tf.placeholder(tf.float32, shape=identity.shape)
+        HTH_plc = tf.placeholder(tf.float32, shape=HTH.shape)
+        targets_plc = tf.placeholder(tf.float32, shape=targets.shape)
 
         with tf.device('/gpu:0'):
-            compute_dot2 = tf.tensordot(hidden_activations_t_plc, targets_plc, axes=1)
+            compute_HTt = tf.tensordot(hidden_activations_t_plc, targets_plc, axes=1)
 
         with tf.Session() as sess:
-            dot2 =  sess.run(compute_dot2, feed_dict={hidden_activations_t_plc: hidden_activations.T,
+            HTt =  sess.run(compute_HTt, feed_dict={hidden_activations_t_plc: hidden_activations.T,
                                                  targets_plc : targets})
             sess.close()
         
-        dot2_plc = tf.placeholder(tf.float32, shape=dot2.shape)
+        HTt_plc = tf.placeholder(tf.float32, shape=HTt.shape)
 
         with tf.device('/gpu:0'):
-            compute_inverse = tf.matrix_solve(identity_plc  + dot1_plc,
-                                       dot2_plc)
+            Hinv = tf.matrix_solve(identity_plc  + HTH,
+                                       HTt)
         with tf.Session() as sess:                            
-            self.output_weights = sess.run(compute_inverse, feed_dict={identity_plc: identity, dot1_plc : dot1, dot2_plc : dot2})
+            self.output_weights = sess.run(Hinv, feed_dict={identity_plc: identity, HTH_plc : HTH, HTt_plc : HTt})
             sess.close()
-        self.verbosity_mgr.end()
+
+    def _more_neurons_than_samples(self, targets = None, hidden_activations = None):
+
+        hidden_activations_plc = tf.placeholder(tf.float32, shape=hidden_activations.shape)
+        hidden_activations_t_plc = tf.placeholder(tf.float32, shape=hidden_activations.T.shape)
+        
+        with tf.device('/gpu:0'):
+            compute_HHT = tf.tensordot(hidden_activations_plc, hidden_activations_t_plc, axes=1)
+
+        with tf.Session() as sess:
+            HHT =  sess.run(compute_HHT, feed_dict={hidden_activations_t_plc: hidden_activations.T,
+                                                 hidden_activations_plc : hidden_activations})
+            sess.close()
+        
+        identity = np.eye(HHT.shape[0], HHT.shape[1]) / self.C
+        identity_plc = tf.placeholder(tf.float32, shape=identity.shape)
+        HHT_plc = tf.placeholder(tf.float32, shape=HHT.shape)
+        targets_plc = tf.placeholder(tf.float32, shape=targets.shape)
+
+        with tf.device('/gpu:0'):
+            compute_Hinv = tf.matrix_solve(identity_plc + HHT_plc, targets_plc)
+        
+        with tf.Session() as sess:                            
+            Hinv = sess.run(compute_Hinv, feed_dict={identity_plc : identity, HHT_plc : HHT, targets_plc : targets})
+            sess.close()
+       
+        Hinv_plc = tf.placeholder(tf.float32, shape=Hinv.shape)
+
+        with tf.device('/gpu:0'):
+            compute_HTHinv = tf.tensordot(hidden_activations_t_plc, Hinv_plc, axes=1)
+
+        with tf.Session() as sess:                            
+            self.output_weights = sess.run(compute_HTHinv, feed_dict={hidden_activations_t_plc: hidden_activations.T, Hinv_plc : Hinv})
+            sess.close()
 
     def _predict_classifier(self, hidden_activations = None):
         self.verbosity_mgr.begin("predict_classifier")

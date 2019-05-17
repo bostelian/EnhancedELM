@@ -4,6 +4,9 @@ import numpy as np
 from sklearn.utils import check_random_state
 from sklearn.utils.extmath import safe_sparse_dot
 from utils.verbosity_manager import VerbosityManager
+from scipy.linalg import orth
+from scipy.ndimage import convolve
+from scipy.signal import convolve2d
 
 class RandomLayerAbstract():
     def __init__(self,
@@ -32,9 +35,13 @@ class RandomLayerAbstract():
         self.verbosity_mgr.begin("transform")
         if self.is_fitted == False:
             raise ValueError('The random layer is not fitted')
-        result = self._compute_output_weights(dataset)
+        output_weights = self._compute_output_weights(dataset)
+        self.hidden_neurons = self._set_hidden_neurons(output_weights)
         self.verbosity_mgr.end()
-        return result
+        return output_weights
+
+    def _set_hidden_neurons(self, output_weights = None):
+        return output_weights.shape[1]
 
     def _generate_weights(self, dataset = None, random_generator = None):
         features = dataset.shape[1]
@@ -148,3 +155,74 @@ class RandomLayerLRF(RandomLayerAbstract):
 
     def _compute_output_weights(self, dataset = None):
         return self.activation_function(safe_sparse_dot(dataset,self.weights))
+
+
+class RandomLayerConvolutional(RandomLayerAbstract):
+    __NAME__ = "RandomLayerConvolutional"
+    def __init__(self,
+                 feature_maps = 10,
+                 field_size = 4,
+                 pooling_size = 3,
+                 random_state = 0,
+                 verbose = False):
+        super().__init__(
+                        random_state = random_state,
+                        verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
+        self.feature_maps = feature_maps
+        self.field_size = field_size
+        self.pooling_size = pooling_size
+    
+    def _generate_weights(self):
+        field_area = self.field_size * self.field_size
+        self.weights = 0.1*np.random.randn(field_area, self.feature_maps)
+
+        if field_area < self.feature_maps:
+            self.weights = orth(self.weights.T).T
+        else:
+            self.weights = orth(self.weights)
+
+    def fit_transform(self, dataset = None):
+        self._generate_weights()
+        self._set_colormaps(dataset)
+        return self.transform(dataset)
+    
+    def transform(self, dataset = None):
+        output_weights =[]
+        for image in dataset:
+            image_activation = np.array([], dtype=np.float32)
+            for feature_map in range(0, self.feature_maps):
+                convolved_data = self._convolve(image, feature_map)
+                #return convolved_data
+                convolved_data=self._downsample(convolved_data)
+                image_activation = np.append(image_activation, convolved_data)
+            if self.hidden_neurons == None:
+                self.hidden_neurons = image_activation.shape[0]
+            output_weights.append(image_activation)
+        return np.asarray(output_weights, dtype=np.float32)
+
+    def _convolve(self, data = None, feature_map = None):
+        result = np.zeros((data.shape[0], data.shape[1]))
+
+        for colormap in range(0, self.colormaps):
+            kernel = self.weights[:, feature_map].reshape(self.field_size, self.field_size)
+            if self.colormaps > 1:
+                result += convolve2d(data[:, :, colormap], kernel, mode='same', boundary = 'wrap') 
+            else:
+                result += convolve2d(data[:, :], kernel, mode='same', boundary = 'wrap') 
+       
+        return result
+
+    def _downsample(self, data = None):
+        e = int(self.pooling_size)
+        ones = np.ones((e, e))
+        result = convolve2d(np.power(data[:,:], 2), ones, mode='same', boundary = 'wrap')
+
+        return np.sqrt(result)
+
+    def _set_colormaps(self, dataset = None):
+        self.colormaps = 1
+        if len(dataset.shape) > 4 or len(dataset.shape) < 3:
+            raise Exception("Invalid dataset shape")
+        if len(dataset.shape) == 4:
+            self.colormaps = dataset.shape[3]
+    
