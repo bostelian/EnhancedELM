@@ -4,6 +4,7 @@ import numpy as np
 from sklearn.utils import check_random_state
 from sklearn.utils.extmath import safe_sparse_dot
 from utils.verbosity_manager import VerbosityManager
+from utils.dataset_wrappers import flatten
 from scipy.linalg import orth
 from scipy.ndimage import convolve
 from scipy.signal import convolve2d
@@ -18,16 +19,11 @@ class RandomLayerAbstract():
         self.hidden_neurons = hidden_neurons
         self.activation_function = activation_function
         self.random_state = random_state
-        self.weights = None
-        self.biases = None
-        self.is_fitted = False
         self.verbosity_mgr = verbosity_mgr
 
     def fit_transform(self, dataset):
         self.verbosity_mgr.begin("fit_transform")
-        random_generator = check_random_state(self.random_state)
-        self._generate_biases(dataset, random_generator)
-        self._generate_weights(dataset, random_generator)
+        self._fit(dataset)
         self.is_fitted = True
         self.verbosity_mgr.end()
         return self.transform(dataset)
@@ -36,27 +32,40 @@ class RandomLayerAbstract():
         self.verbosity_mgr.begin("transform")
         if self.is_fitted == False:
             raise ValueError('The random layer is not fitted')
-        output_weights = self._compute_output_weights(dataset)
-        self.hidden_neurons = self._set_hidden_neurons(output_weights)
+        hidden_activations = self._compute_hidden_activations(dataset)
+        self.hidden_neurons = self._set_hidden_neurons(hidden_activations)
         self.verbosity_mgr.end()
-        return output_weights
+        return hidden_activations
 
     def _set_hidden_neurons(self, output_weights = None):
         return output_weights.shape[1]
 
-    def _generate_weights(self, dataset = None, random_generator = None):
-        features = dataset.shape[1]
-        self.weights = random_generator.normal(size = (features, self.hidden_neurons)).astype('float32')
-    
-    def _generate_biases(self,  dataset = None, random_generator = None):
-        self.biases = random_generator.normal(size = self.hidden_neurons).astype('float32')
+    @abstractmethod
+    def _fit(self, dataset = None):
+        pass
 
     @abstractmethod
-    def _compute_output_weights(self, dataset = None):
+    def _compute_hidden_activations(self, dataset = None):
         pass
         
+class RandomLayerGeneral(RandomLayerAbstract):
+    def __init__(self,
+                hidden_neurons = 1000,
+                activation_function = lambda arg : tf.tanh(arg),
+                random_state = 0,
+                verbosity_mgr = None):
+        super().__init__(hidden_neurons = hidden_neurons,
+                        activation_function = activation_function,
+                        random_state = random_state,
+                        verbosity_mgr = verbosity_mgr)
 
-class RandomLayerGPU(RandomLayerAbstract):
+    def _fit(self, dataset = None):
+            features = dataset.shape[1]
+            self.weights = np.random.normal(size=(features, self.hidden_neurons)).astype("float32")
+            self.biases = np.random.normal(size = self.hidden_neurons).astype('float32')
+
+
+class RandomLayerGPU(RandomLayerGeneral):
     __NAME__ = "RandomLayerGPU"
     def __init__(self,
                  hidden_neurons = 1000,
@@ -68,8 +77,8 @@ class RandomLayerGPU(RandomLayerAbstract):
                         random_state = random_state,
                         verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
 
-
-    def _compute_output_weights(self, dataset = None):
+    
+    def _compute_hidden_activations(self, dataset = None):
         self.verbosity_mgr.begin("compute_output_weights")
         dataset_plc = tf.placeholder(tf.float32, shape=dataset.shape)
         weights_plc = tf.placeholder(tf.float32, shape=self.weights.shape)
@@ -83,15 +92,15 @@ class RandomLayerGPU(RandomLayerAbstract):
         dot_product_plc = tf.placeholder(tf.float32, shape=dot_product.shape)
         biases_plc = tf.placeholder(tf.float32, shape=self.biases.shape) 
         with tf.device('/gpu:0'):
-            compute_output_weights = self.activation_function(dot_product_plc + biases_plc)
+            compute_hidden_activations = self.activation_function(dot_product_plc + biases_plc)
 
         with tf.Session() as sess:
-            output_weights =  sess.run(compute_output_weights, feed_dict={dot_product_plc: dot_product, biases_plc : self.biases})
+            hidden_activations =  sess.run(compute_hidden_activations, feed_dict={dot_product_plc: dot_product, biases_plc : self.biases})
             sess.close()
         self.verbosity_mgr.end()
-        return output_weights
+        return hidden_activations
 
-class RandomLayerCPU(RandomLayerAbstract):
+class RandomLayerCPU(RandomLayerGeneral):
     __NAME__ = "RandomLayerCPU"
     def __init__(self,
                  hidden_neurons = 1000,
@@ -103,14 +112,15 @@ class RandomLayerCPU(RandomLayerAbstract):
                         random_state = random_state,
                         verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
     
-    def _compute_output_weights(self, dataset = None):
+    def _compute_hidden_activations(self, dataset = None):
         self.verbosity_mgr.begin("compute_output_weights")
-        result = self.activation_function(safe_sparse_dot(dataset, self.weights) + self.biases)
+        hidden_activations = self.activation_function(safe_sparse_dot(dataset, self.weights) + self.biases)
         self.verbosity_mgr.end()
-        return result
+        return hidden_activations
 
-class RandomLayerLRF(RandomLayerAbstract):
-    __NAME__ = "RandomLayerLRF"
+
+
+class RandomLayerGeneralImage(RandomLayerAbstract):
     def __init__(self,
                  hidden_neurons = 1000,
                  activation_function = lambda arg : np.tanh(arg),
@@ -118,6 +128,35 @@ class RandomLayerLRF(RandomLayerAbstract):
                  LRF_threshold = 10,
                  border = 0,
                  data_shape = (0, 0),
+                 verbosity_mgr = None):
+        super().__init__(hidden_neurons = hidden_neurons,
+                        activation_function = activation_function,
+                        random_state = random_state,
+                        verbosity_mgr = verbosity_mgr) 
+
+    def _fit(self, dataset = None):
+        self._set_colormaps(dataset)
+        self._generate_weights(dataset)
+
+    def _set_colormaps(self, dataset = None):
+        self.colormaps = 1
+        if len(dataset.shape) > 4 or len(dataset.shape) < 3:
+            raise Exception("Invalid dataset shape")
+        if len(dataset.shape) == 4:
+            self.colormaps = dataset.shape[3]
+
+    @abstractmethod
+    def _generate_weights(self, dataset = None):
+        pass
+
+class RandomLayerLRF(RandomLayerGeneralImage):
+    __NAME__ = "RandomLayerLRF"
+    def __init__(self,
+                 hidden_neurons = 1000,
+                 activation_function = lambda arg : np.tanh(arg),
+                 random_state = 0,
+                 LRF_threshold = 10,
+                 border = 0,
                  verbose = False):
         super().__init__(hidden_neurons = hidden_neurons,
                         activation_function = activation_function,
@@ -125,19 +164,20 @@ class RandomLayerLRF(RandomLayerAbstract):
                         verbosity_mgr = VerbosityManager(verbose = verbose, class_name = self.__NAME__))
         self.LRF_threshold = LRF_threshold
         self.border = border
-        self.data_shape = data_shape
     
-    def _generate_weights(self, dataset = None, random_generator = None):
-        features = dataset.shape[1]
-        LRF_mask = self._generate_LRF_mask(features)
-        self.weights = np.multiply(LRF_mask, random_generator.normal(size = (features, self.hidden_neurons)).astype('float32'))
+    def _generate_weights(self, dataset = None):
+        self.features = dataset.shape[1] * dataset.shape[2]
+        self.weights = np.random.normal(size = (self.features, self.hidden_neurons)).astype('float32')
+        LRF_mask = self._generate_LRF_mask(dataset)
+        self.weights = np.multiply(LRF_mask, self.weights)
 
-    def _generate_LRF_mask(self, features):
+    def _generate_LRF_mask(self, dataset = None):
         self.verbosity_mgr.begin("generate_LRF_mask")
-        LRF_mask = np.zeros((features, self.hidden_neurons), dtype="float32")
-        indexMaxVal = self.data_shape[0] if self.data_shape[0] > self.data_shape[1] else self.data_shape[1]
+        LRF_mask = np.zeros((self.features, self.hidden_neurons), dtype="float32")
+        indexMaxVal = dataset.shape[1] if dataset.shape[1] > dataset.shape[2] else dataset.shape[2]
+
         for neuron in range(0, self.hidden_neurons - 1):
-            image_mask = np.zeros(self.data_shape)
+            image_mask = np.zeros((dataset.shape[1], dataset.shape[2]))
             index1 = np.zeros((2,1))
             index2 = np.zeros((2,1))
             while (index1[1]-index1[0]) * (index2[1] - index2[0]) < self.LRF_threshold:
@@ -151,14 +191,26 @@ class RandomLayerLRF(RandomLayerAbstract):
                                                 size=(2,1)).astype("int"), axis=None)
             image_mask[index1[0]:index1[1]:1, index2[0]:index2[1]:1] = 1
             LRF_mask[:,neuron] = image_mask.flatten()
+
         self.verbosity_mgr.end()
         return LRF_mask
 
-    def _compute_output_weights(self, dataset = None):
-        return self.activation_function(safe_sparse_dot(dataset,self.weights))
+    def _compute_hidden_activations(self, dataset = None):
+        hidden_activations = np.zeros((dataset.shape[0], self.hidden_neurons))
+
+        if self.colormaps > 1:
+            for colormap in range(0, self.colormaps):           
+                temp_dataset = dataset[:,:,:,colormap]
+                temp_dataset = temp_dataset.reshape((dataset.shape[0], self.features))
+                hidden_activations += self.activation_function(safe_sparse_dot(temp_dataset, self.weights))
+        else:
+            dataset = dataset.reshape(dataset.shape[0], self.features)
+            hidden_activations = self.activation_function(safe_sparse_dot(dataset, self.weights))
+
+        return hidden_activations
 
 
-class RandomLayerConvolutional(RandomLayerAbstract):
+class RandomLayerConvolutional(RandomLayerGeneralImage):
     __NAME__ = "RandomLayerConvolutional"
     def __init__(self,
                  feature_maps = 10,
@@ -173,7 +225,7 @@ class RandomLayerConvolutional(RandomLayerAbstract):
         self.field_size = field_size
         self.pooling_size = pooling_size
     
-    def _generate_weights(self):
+    def _generate_weights(self, dataset = None):
         field_area = self.field_size * self.field_size
         self.weights = np.random.randint(low = -1, high = 1, size=(field_area, self.feature_maps))
         #self.weights = np.random.normal(size=(field_area, self.feature_maps))
@@ -181,33 +233,18 @@ class RandomLayerConvolutional(RandomLayerAbstract):
             self.weights = orth(self.weights.T).T
         else:
             self.weights = orth(self.weights)
+ 
 
-    def fit_transform(self, dataset = None):
-        self._generate_weights()
-        self._set_colormaps(dataset)
-        self.is_fitted = True
-        return self.transform(dataset)
-    
-
-    def _compute_output_weights(self, dataset = None):
+    def _compute_hidden_activations(self, dataset = None):
         output_weights =[]
-        #
-        # fig, axs = plt.subplots(self.feature_maps, figsize=(10,20))
-        # count = 0
-        #
         for image in dataset:
             image_activation = np.array([], dtype=np.float32)
             for feature_map in range(0, self.feature_maps):
-                convolved_data = self._downsample(self._convolve(image, feature_map))
-                #
-                # if count == 0:
-                #     axs[feature_map].imshow(convolved_data, cmap="gray")
-                #
-                image_activation = np.append(image_activation, convolved_data)
+                convolved_data = self._pool(self._convolve(image, feature_map))
+                image_activation = np.append(image_activation, convolved_data.flatten())
             output_weights.append(image_activation)
-            # count += 1
         return np.asarray(output_weights, dtype=np.float32)
-    # def transform():
+
 
     def _convolve(self, data = None, feature_map = None):
         result = np.zeros((data.shape[0], data.shape[1]))
@@ -221,17 +258,7 @@ class RandomLayerConvolutional(RandomLayerAbstract):
        
         return result
 
-    def _downsample(self, data = None):
-        e = int(self.pooling_size)
-        ones = np.ones((e, e))
+    def _pool(self, data = None):
+        ones = np.ones((self.pooling_size, self.pooling_size))
         result = convolve2d(np.power(data[:,:], 2), ones, mode='same', boundary = 'wrap')
-
         return np.sqrt(result)
-
-    def _set_colormaps(self, dataset = None):
-        self.colormaps = 1
-        if len(dataset.shape) > 4 or len(dataset.shape) < 3:
-            raise Exception("Invalid dataset shape")
-        if len(dataset.shape) == 4:
-            self.colormaps = dataset.shape[3]
-    
