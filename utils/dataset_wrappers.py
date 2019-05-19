@@ -13,8 +13,7 @@ def dataset_wrapper(dataset = None, data_resize = False, data_size = None, data_
 
     if dataset == 'cifar10':
         X, y = cifar10_wrapper()
-
-    if dataset == None:
+    else:
         Exception("Invalid dataset")
 
     if data_resize == True and data_size != None:
@@ -36,9 +35,9 @@ def norb_wrapper(single_channel=False):
         left = data.image_lt.flatten()
         right = data.image_rt.flatten()
         if single_channel == True:
-            result = np.append(left, right).reshape([2,96,96]).transpose([1,2,0])
+            result = data.image_lt
         else:
-            result = left
+            result = np.append(left, right).reshape([2,96,96]).transpose([1,2,0])
         X.append(result)
         y.append(data.category)
 
@@ -46,9 +45,9 @@ def norb_wrapper(single_channel=False):
         left = data.image_lt.flatten()
         right = data.image_rt.flatten()
         if single_channel == True:
-            result = np.append(left, right).reshape([2,96,96]).transpose([1,2,0])
+            result = data.image_lt
         else:
-            result = left
+            result = np.append(left, right).reshape([2,96,96]).transpose([1,2,0])
         X.append(result)
         y.append(data.category)
 

@@ -7,7 +7,8 @@ from utils.verbosity_manager import VerbosityManager
 from scipy.linalg import orth
 from scipy.ndimage import convolve
 from scipy.signal import convolve2d
-
+#
+import matplotlib.pyplot as plt
 class RandomLayerAbstract():
     def __init__(self,
                  hidden_neurons = None,
@@ -174,8 +175,8 @@ class RandomLayerConvolutional(RandomLayerAbstract):
     
     def _generate_weights(self):
         field_area = self.field_size * self.field_size
-        self.weights = 0.1*np.random.randn(field_area, self.feature_maps)
-
+        self.weights = np.random.randint(low = -1, high = 1, size=(field_area, self.feature_maps))
+        #self.weights = np.random.normal(size=(field_area, self.feature_maps))
         if field_area < self.feature_maps:
             self.weights = orth(self.weights.T).T
         else:
@@ -184,21 +185,29 @@ class RandomLayerConvolutional(RandomLayerAbstract):
     def fit_transform(self, dataset = None):
         self._generate_weights()
         self._set_colormaps(dataset)
+        self.is_fitted = True
         return self.transform(dataset)
     
-    def transform(self, dataset = None):
+
+    def _compute_output_weights(self, dataset = None):
         output_weights =[]
+        #
+        # fig, axs = plt.subplots(self.feature_maps, figsize=(10,20))
+        # count = 0
+        #
         for image in dataset:
             image_activation = np.array([], dtype=np.float32)
             for feature_map in range(0, self.feature_maps):
-                convolved_data = self._convolve(image, feature_map)
-                #return convolved_data
-                convolved_data=self._downsample(convolved_data)
+                convolved_data = self._downsample(self._convolve(image, feature_map))
+                #
+                # if count == 0:
+                #     axs[feature_map].imshow(convolved_data, cmap="gray")
+                #
                 image_activation = np.append(image_activation, convolved_data)
-            if self.hidden_neurons == None:
-                self.hidden_neurons = image_activation.shape[0]
             output_weights.append(image_activation)
+            # count += 1
         return np.asarray(output_weights, dtype=np.float32)
+    # def transform():
 
     def _convolve(self, data = None, feature_map = None):
         result = np.zeros((data.shape[0], data.shape[1]))
